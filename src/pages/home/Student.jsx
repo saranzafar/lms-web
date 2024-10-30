@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
-import conf from "../../conf/conf"
+import conf from "../../conf/conf";
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+import { getDataFromLocalStorage } from '../../utils/localStorage';
 
 function Student() {
 
@@ -22,136 +23,111 @@ function Student() {
     const [allStudents, setAllStudents] = useState([]);
     const [deleteLoadingSub, setDeleteLoadingSub] = useState({});
     const [allGrades, setAllGrades] = useState([]);
+    const [tokenData, setTokenData] = useState({ token: '', admin: {} });
+
+    useEffect(() => {
+        const retrievedToken = getDataFromLocalStorage('token');
+        const retrievedAdminData = JSON.parse(getDataFromLocalStorage('admin'));
+        setTokenData({ token: retrievedToken, admin: retrievedAdminData });
+    }, []);
 
     // get all students
     const getAllStudents = async () => {
         try {
-            const token = await window.electronAPI.getUserData();
-            const id = token.admin._id
+            const id = tokenData.admin._id;
             const response = await axios.get(`${conf.backendUrl}student/get-all-students/${id}`, {
                 headers: {
-                    Authorization: `Bearer ${token?.token}`
+                    Authorization: `Bearer ${tokenData.token}`
                 }
             });
-            setAllStudents(response?.data?.data?.students)
+            setAllStudents(response?.data?.data?.students);
         } catch (err) {
-            console.log("Error::", err.response);
+            console.error("Error:", err.response);
         }
     };
+
     useEffect(() => {
-        getAllStudents();
-    }, [])
-    // sort all students 
-    const sortedStudents = allStudents.sort((a, b) => {
-        // Extract the numeric part of the grade for comparison
-        const gradeA = parseInt(a.grade.replace("Grade-", ""));
-        const gradeB = parseInt(b.grade.replace("Grade-", ""));
+        if (tokenData.token) getAllStudents();
+    }, [tokenData]);
 
-        // Compare grades
-        if (gradeA < gradeB) return -1;
-        if (gradeA > gradeB) return 1;
+    const sortedStudents = allStudents.sort((a, b) => a.rollNo - b.rollNo);
 
-        // If grades are the same, compare roll numbers
-        if (a.rollNo < b.rollNo) return -1;
-        if (a.rollNo > b.rollNo) return 1;
-
-        // If both grade and roll numbers are the same, they are considered equal
-        return 0;
-    });
-
-    // delete student
+    // Delete student
     const deleteStudent = async (id) => {
         setDeleteLoadingSub((prev) => ({ ...prev, [id]: true }));
-        const token = await window.electronAPI.getUserData();
-        await axios.delete(`${conf.backendUrl}student/delete-student/${id}`, {
-            headers: {
-                Authorization: `Bearer ${token?.token}`
-            }
-        }).then((response) => {
-            toast.success(response?.data?.message, {
+        try {
+            await axios.delete(`${conf.backendUrl}student/delete-student/${id}`, {
+                headers: {
+                    Authorization: `Bearer ${tokenData.token}`
+                }
+            });
+            toast.success("Student deleted successfully", {
                 position: "bottom-right",
                 autoClose: 2000,
             });
             setDeleteLoadingSub((prev) => ({ ...prev, [id]: false }));
-            getAllStudents()
-        }).catch((err) => {
-            toast.success(err?.response.data.message, {
+            getAllStudents();
+        } catch (err) {
+            toast.error("Failed to delete student", {
                 position: "bottom-right",
                 autoClose: 2000,
             });
             setDeleteLoadingSub((prev) => ({ ...prev, [id]: false }));
-        })
-    }
-
-    const handleChange = (field, value) => {
-        setFormData({ ...formData, [field]: value });
+        }
     };
 
-    const setFormdataBlank = () => {
-        setFormData({
-            name: '',
-            fatherName: '',
-            rollNo: '',
-            dateOfBirth: '',
-            gender: '',
-            address: '',
-            phoneNumber: '',
-            grade: '',
-        });
-    };
+    const handleChange = (field, value) => setFormData({ ...formData, [field]: value });
+
+    const setFormdataBlank = () => setFormData({
+        name: '', fatherName: '', rollNo: '', dateOfBirth: '', gender: '', address: '', phoneNumber: '', grade: ''
+    });
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setStudentFormButtonLoading(true);
-        const token = await window.electronAPI.getUserData();
-        formData.user = token.admin._id
-        await axios.post(`${conf.backendUrl}student/register-student`, formData,
-            {
+        try {
+            formData.user = tokenData.admin._id;
+            const response = await axios.post(`${conf.backendUrl}student/register-student`, formData, {
                 headers: {
-                    Authorization: `Bearer ${token?.token}`,
-                },
-            })
-            .then((response) => {
-                toast.success(`${response?.data?.message} `, {
-                    position: "bottom-right",
-                    autoClose: 2000,
-                });
-                setStudentFormButtonLoading(false);
-                setFormdataBlank()
-            })
-            .catch((err) => {
-                toast.warning(`${err?.response?.data?.message} ` || "Check Network an reload", {
-                    position: "bottom-right",
-                    autoClose: 2000,
-                });
-                setStudentFormButtonLoading(false);
+                    Authorization: `Bearer ${tokenData.token}`
+                }
             });
-        return
+            toast.success(response.data.message, {
+                position: "bottom-right",
+                autoClose: 2000,
+            });
+            setFormdataBlank();
+        } catch (error) {
+            toast.error("Error while adding student", {
+                position: "bottom-right",
+                autoClose: 2000,
+            });
+        } finally {
+            setStudentFormButtonLoading(false);
+        }
     };
 
     const getAllGrades = async () => {
-        const token = await window.electronAPI.getUserData();
-        const user = token.admin._id
-
         try {
-            await axios.get(`${conf.backendUrl}admin/get-all-grades/${user}`, {
+            const userId = tokenData.admin._id;
+            const response = await axios.get(`${conf.backendUrl}admin/get-all-grades/${userId}`, {
                 headers: {
-                    Authorization: `Bearer ${token?.token}`,
-                },
-            }).then((res) => {
-                setAllGrades(res.data?.data?.gradename)
-            })
+                    Authorization: `Bearer ${tokenData.token}`
+                }
+            });
+            setAllGrades(response.data.data.gradename);
         } catch (err) {
-            toast.error(`${err.response?.data?.message || "Network Issue"}`, {
+            toast.error("Network Issue", {
                 position: "bottom-right",
                 autoClose: 2000,
             });
         }
-    }
+    };
 
     useEffect(() => {
-        getAllGrades()
-    }, [])
+        if (tokenData.token) getAllGrades();
+    }, [tokenData]);
+
 
     return (
         <section>
@@ -395,7 +371,7 @@ function Student() {
                                                             </tr>
                                                         </thead>
                                                         <tbody className="divide-y divide-gray-200 bg-white">
-                                                            {sortedStudents.map((student) => (
+                                                            {sortedStudents?.map((student) => (
                                                                 <tr key={student._id}>
                                                                     <td className="whitespace-nowrap px-4 py-4">
                                                                         <div className="text-sm font-medium text-gray-900">{student.name} {student.fatherName}</div>

@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
-// import conf from "../../conf/conf"
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+import { getDataFromLocalStorage } from '../../utils/localStorage';
+import conf from '../../conf/conf';
 
 function Subject() {
     const [selectedSubData, setSelectedSubData] = useState([]);
@@ -13,24 +14,41 @@ function Subject() {
     const [allTimetables, setAllTimetables] = useState([]);
     const [deleteLoadingSub, setDeleteLoadingSub] = useState({});
     const [allGrades, setAllGrades] = useState([]);
+    const [tokenData, setTokenData] = useState(null); 
 
+    // Retrieve token and admin data on component mount
+    useEffect(() => {
+        const retrievedUserData = getDataFromLocalStorage("admin");
+        const retrievedToken = getDataFromLocalStorage("token");
 
+        if (retrievedUserData && retrievedToken) {
+            const adminData = JSON.parse(retrievedUserData);
+            setTokenData({
+                token: retrievedToken,
+                admin: adminData,
+            });
+        }
+    }, []);
 
-    // select grade 
+    // Fetch grades and timetables once tokenData is available
+    useEffect(() => {
+        if (tokenData) {
+            getAllGrades();
+            getAllTimetables();
+        }
+    }, [tokenData]);
+
+    // Select grade and fetch subjects
     const handleGradeSubmit = async (e) => {
         e.preventDefault();
         setGradeButtonLoading(true);
-        const token = await window.electronAPI.getUserData();
-        const id = token?.admin?._id
-        await axios.post(`${conf.backendUrl}timetable/get-subject-by-grade`, { grade, id },
-            {
-                headers: {
-                    Authorization: `Bearer ${token?.token}`,
-                },
-            })
+
+        const id = tokenData?.admin?._id;
+        await axios.post(`${conf.backendUrl}timetable/get-subject-by-grade`, { grade, id }, {
+            headers: { Authorization: `Bearer ${tokenData.token}` },
+        })
             .then((response) => {
-                setGrade([])
-                setSelectedSubData(response?.data?.data?.subjects)
+                setSelectedSubData(response?.data?.data?.subjects);
                 setGradeButtonLoading(false);
             })
             .catch((err) => {
@@ -42,7 +60,7 @@ function Subject() {
             });
     };
 
-    // add time table 
+    // Add timetable
     const [formData, setFormData] = useState({
         grade: '',
         subject: '',
@@ -53,10 +71,7 @@ function Subject() {
     });
 
     const handleChange = (field, value) => {
-        setFormData({
-            ...formData,
-            [field]: value
-        });
+        setFormData((prev) => ({ ...prev, [field]: value }));
     };
 
     const setFormDataBlank = () => {
@@ -66,69 +81,39 @@ function Subject() {
             teacher: '',
             startTime: '08:00 AM',
             endTime: '09:00 AM',
-        })
-    }
+        });
+    };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        setButtonLoading(true);
+        const { startTime, endTime } = formData;
 
-        const startTime = formData.startTime;
-        const endTime = formData.endTime;
-
-        // Convert time in "HH:MM" format to minutes since 00:00
+        // Convert time to minutes and validate
         const convertToMinutes = (time) => {
             const [hours, minutes] = time.split(':').map(Number);
             return hours * 60 + minutes;
         };
-        console.log("START: ", startTime, " END: ", endTime);
 
         const startMinutes = convertToMinutes(startTime);
         const endMinutes = convertToMinutes(endTime);
-
-        // Validation: Start time and end time should be between 08:00 and 16:00 (24-hour format)
         const dayStartMinutes = convertToMinutes("08:00");
         const dayEndMinutes = convertToMinutes("16:00");
 
-        if (startMinutes < dayStartMinutes || endMinutes > dayEndMinutes) {
-            toast.warning(`Time should be between 08:00 and 16:00`, {
+        if (startMinutes < dayStartMinutes || endMinutes > dayEndMinutes || startMinutes >= endMinutes || endMinutes - startMinutes > 90) {
+            toast.warning("Invalid time range (08:00 - 16:00) or exceeding 1.5 hours", {
                 position: "bottom-right",
                 autoClose: 2000,
             });
+            setButtonLoading(false);
             return;
         }
 
-        // Validation: Start time must be before end time
-        if (startMinutes >= endMinutes) {
-            toast.warning(`Start time must be before end time`, {
-                position: "bottom-right",
-                autoClose: 2000,
-            });
-            return;
-        }
-
-        // Validation: Start time and end time should have a maximum of 1.5 hours gap
-        const maxDurationMinutes = 1.5 * 60; // 1.5 hours in minutes
-        const duration = endMinutes - startMinutes;
-
-        if (duration > maxDurationMinutes) {
-            toast.warning(`The time gap between start and end time should not exceed 1.5 hours`, {
-                position: "bottom-right",
-                autoClose: 2000,
-            });
-            return;
-        }
-
-        setButtonLoading(true);
         try {
-            const token = await window.electronAPI.getUserData();
-            formData.user = token.admin._id;
-
-            const response = await axios.post(`${conf.backendUrl}timetable/add-timetable`, { formData },
-                {
-                    headers: {
-                        Authorization: `Bearer ${token?.token}`,
-                    },
-                });
+            formData.user = tokenData?.admin?._id;
+            const response = await axios.post(`${conf.backendUrl}timetable/add-timetable`, { formData }, {
+                headers: { Authorization: `Bearer ${tokenData.token}` },
+            });
 
             toast.success(response.data.message, {
                 position: "bottom-right",
@@ -136,7 +121,6 @@ function Subject() {
             });
             setFormDataBlank();
         } catch (error) {
-            console.error(error);
             toast.error(error?.response?.data?.message || "Error while adding Timetable", {
                 position: "bottom-right",
                 autoClose: 2000,
@@ -145,93 +129,67 @@ function Subject() {
         setButtonLoading(false);
     };
 
-
     const handleSubjectChange = (subjectName) => {
         const selectedSubject = selectedSubData.find(sub => sub.name === subjectName);
-        setFormData({
-            ...formData,
+        setFormData((prev) => ({
+            ...prev,
             subject: subjectName,
-            teacher: selectedSubject ? selectedSubject.teacher._id : '',
-            grade: selectedSubject ? selectedSubject.grade : ''
-        });
+            teacher: selectedSubject?.teacher?._id || '',
+            grade: selectedSubject?.grade || '',
+        }));
     };
 
-    // get all time tables
+    // Fetch all timetables
     const getAllTimetables = async () => {
         try {
-            const token = await window.electronAPI.getUserData();
-            const id = token.admin._id
+            const id = tokenData?.admin?._id;
             const response = await axios.get(`${conf.backendUrl}timetable/get-all-timetables/${id}`, {
-                headers: {
-                    Authorization: `Bearer ${token?.token}`
-                }
+                headers: { Authorization: `Bearer ${tokenData.token}` },
             });
-            // setSubjectData(response?.data?.data.subjects);
-            setAllTimetables(response?.data?.data?.timetables)
+            setAllTimetables(response?.data?.data?.timetables || []);
         } catch (err) {
             console.log("err: ", err);
         }
     };
-    useEffect(() => {
-        getAllTimetables();
-    }, [])
 
-    // sort timetable
-    const sortedTimetables = allTimetables.sort((a, b) => {
-        const gradeA = a.grade.toUpperCase();
-        const gradeB = b.grade.toUpperCase();
-        if (gradeA < gradeB) return -1;
-        if (gradeA > gradeB) return 1;
-        return 0;
-    });
-
-    // delete timeTable
+    // Delete timetable
     const deleteTimetable = async (id) => {
         setDeleteLoadingSub((prev) => ({ ...prev, [id]: true }));
-        const token = await window.electronAPI.getUserData();
-        await axios.delete(`${conf.backendUrl}timetable/delete-timetable/${id}`, {
-            headers: {
-                Authorization: `Bearer ${token?.token}`
-            }
-        }).then((response) => {
-            toast.success(response?.data?.message, {
-                position: "bottom-right",
-                autoClose: 2000,
-            });
-            setDeleteLoadingSub((prev) => ({ ...prev, [id]: false }));
-            getAllTimetables()
-        }).catch((err) => {
-            toast.error(`Check Your Network or Reload`, {
-                position: "bottom-right",
-                autoClose: 2000,
-            });
-            setDeleteLoadingSub((prev) => ({ ...prev, [id]: false }));
-        })
-    }
-
-    const getAllGrades = async () => {
-        const token = await window.electronAPI.getUserData();
-        const user = token.admin._id
-
         try {
-            await axios.get(`${conf.backendUrl}admin/get-all-grades/${user}`, {
-                headers: {
-                    Authorization: `Bearer ${token?.token}`,
-                },
-            }).then((res) => {
-                setAllGrades(res.data?.data?.gradename)
-            })
+            await axios.delete(`${conf.backendUrl}timetable/delete-timetable/${id}`, {
+                headers: { Authorization: `Bearer ${tokenData.token}` },
+            });
+            toast.success("Timetable deleted successfully", {
+                position: "bottom-right",
+                autoClose: 2000,
+            });
+            getAllTimetables();
         } catch (err) {
-            toast.error(`${err.response?.data?.message || "Network Issue"}`, {
+            toast.error("Check Your Network or Reload", {
                 position: "bottom-right",
                 autoClose: 2000,
             });
         }
-    }
+        setDeleteLoadingSub((prev) => ({ ...prev, [id]: false }));
+    };
 
-    useEffect(() => {
-        getAllGrades()
-    }, [])
+    const getAllGrades = async () => {
+        try {
+            const response = await axios.get(`${conf.backendUrl}admin/get-all-grades/${tokenData.admin._id}`, {
+                headers: { Authorization: `Bearer ${tokenData.token}` },
+            });
+            setAllGrades(response.data?.data?.gradename || []);
+        } catch (err) {
+            toast.error("Network Issue", {
+                position: "bottom-right",
+                autoClose: 2000,
+            });
+        }
+    };
+
+    // Sort timetables
+    const sortedTimetables = [...allTimetables].sort((a, b) => a.grade.localeCompare(b.grade));
+
 
     return (
         <section className=''>

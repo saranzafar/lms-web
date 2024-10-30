@@ -5,6 +5,7 @@ import conf from "../../conf/conf";
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import classNames from 'classnames';
+import { getDataFromLocalStorage } from '../../utils/localStorage';
 
 function Attendence() {
     const [selectedSubData, setSelectedSubData] = useState([]);
@@ -13,9 +14,14 @@ function Attendence() {
     const [buttonLoading, setButtonLoading] = useState(false);
     const [allStudents, setAllStudents] = useState([]);
     const [attendanceData, setAttendanceData] = useState({});
+    const [tokenData, setTokenData] = useState({ token: '', admin: {} });
 
+    useEffect(() => {
+        const retrievedToken = getDataFromLocalStorage('token');
+        const retrievedAdminData = JSON.parse(getDataFromLocalStorage('admin'));
+        setTokenData({ token: retrievedToken, admin: retrievedAdminData });
+    }, []);
 
-    // ------------ adding attendence ------------ 
     const handleAttendanceChange = (studentId, value) => {
         setAttendanceData(prev => ({
             ...prev,
@@ -32,20 +38,18 @@ function Attendence() {
         attendance: []
     });
 
-    // Handle grade selection and fetching subjects
     const handleGradeSubmit = async (e) => {
         e.preventDefault();
         setGradeButtonLoading(true);
         try {
-            const token = await window.electronAPI.getUserData();
-            const id = token?.admin?._id;
+            const id = tokenData.admin?._id;
             const response = await axios.post(`${conf.backendUrl}timetable/get-subject-by-grade`, { grade, id }, {
                 headers: {
-                    Authorization: `Bearer ${token?.token}`,
+                    Authorization: `Bearer ${tokenData.token}`,
                 },
             });
             setSelectedSubData(response?.data?.data?.subjects || []);
-            getAllStudents()
+            getAllStudents();
         } catch (err) {
             toast.error(`${err?.response?.data?.message || "Error while fetching subjects"}`, {
                 position: "bottom-right",
@@ -56,7 +60,6 @@ function Attendence() {
         }
     };
 
-    // Handle form data changes
     const handleChange = (field, value) => {
         setFormData(prevFormData => ({
             ...prevFormData,
@@ -64,14 +67,11 @@ function Attendence() {
         }));
     };
 
-    // Handle form submission for adding timetable
     const handleSubmit = async (e) => {
         e.preventDefault();
-
         setButtonLoading(true);
         try {
-            const token = await window.electronAPI.getUserData();
-            const { admin: { _id: userId } } = token;
+            const { admin: { _id: userId } } = tokenData;
             const payload = {
                 ...formData,
                 user: userId,
@@ -83,9 +83,9 @@ function Attendence() {
 
             await axios.post(`${conf.backendUrl}attendence/add-attendence`, payload, {
                 headers: {
-                    Authorization: `Bearer ${token?.token}`,
+                    Authorization: `Bearer ${tokenData.token}`,
                 },
-            })
+            });
             toast.success("Timetable added successfully", {
                 position: "bottom-right",
                 autoClose: 2000,
@@ -110,7 +110,6 @@ function Attendence() {
         }
     };
 
-    // Handle subject selection and updating related fields
     const handleSubjectChange = (subjectId) => {
         const selectedSubject = selectedSubData.find(sub => sub._id === subjectId);
         setFormData(prevFormData => ({
@@ -121,25 +120,24 @@ function Attendence() {
         }));
     };
 
-    // Get all students
     const getAllStudents = async () => {
         try {
-            const token = await window.electronAPI.getUserData();
-            const id = token.admin._id;
+            const id = tokenData.admin?._id;
+            console.log("id for all students: ", id);
+
             const response = await axios.post(`${conf.backendUrl}attendence/get-all-same-students/${id}`, { grade }, {
                 headers: {
-                    Authorization: `Bearer ${token?.token}`
+                    Authorization: `Bearer ${tokenData.token}`
                 }
             });
+            console.log("RESPONSE: ", response.data);
+
             setAllStudents(response?.data?.data?.students || []);
         } catch (err) {
-            toast.error(err.response.data.data.message)
+            toast.error(err.response.data.data.message);
         }
     };
 
-
-
-    // ------------ get attendence ------------ 
     const [secondGrade, setSecondGrade] = useState("");
     const [secondGradeButtonLoading, setSecondGradeButtonLoading] = useState(false);
     const [attendenceButtonLoading, setAttendenceButtonLoading] = useState(false);
@@ -148,23 +146,18 @@ function Attendence() {
     const [attendance, setAttendence] = useState([]);
     const [allGrades, setAllGrades] = useState([]);
 
-
-    // Handle grade selection and fetching subjects
     const handleSecongGradeSubmit = async (e) => {
         e.preventDefault();
         setSecondGradeButtonLoading(true);
-        const token = await window.electronAPI.getUserData();
-        const id = token?.admin?._id;
-        const grade = secondGrade
+        const id = tokenData.admin?._id;
+        const grade = secondGrade;
         try {
-
             const response = await axios.post(`${conf.backendUrl}timetable/get-subject-by-grade`, { grade, id }, {
                 headers: {
-                    Authorization: `Bearer ${token?.token}`,
+                    Authorization: `Bearer ${tokenData.token}`,
                 },
             });
             setSelectedSecondSubData(response?.data?.data?.subjects || []);
-            // getAllStudents()
         } catch (err) {
             toast.error(`${err?.response?.data?.message || "Error while fetching subjects"}`, {
                 position: "bottom-right",
@@ -175,14 +168,10 @@ function Attendence() {
         }
     };
 
-    // fetch Attendence
-    // Handle form submission for adding timetable
     const fetchAttendence = async (e) => {
         e.preventDefault();
         setAttendenceButtonLoading(true);
-
-        const token = await window.electronAPI.getUserData();
-        const { admin: { _id: userId } } = token;
+        const { admin: { _id: userId } } = tokenData;
         const payload = {
             user: userId,
             grade: secondGrade,
@@ -191,10 +180,10 @@ function Attendence() {
         try {
             const response = await axios.post(`${conf.backendUrl}attendence/get-attendence`, payload, {
                 headers: {
-                    Authorization: `Bearer ${token?.token}`,
+                    Authorization: `Bearer ${tokenData.token}`,
                 },
-            })
-            setAttendence(response?.data?.data)
+            });
+            setAttendence(response?.data?.data);
             setSecondFormData({ subject: '' });
         } catch (error) {
             console.error("add attendence error", error);
@@ -207,8 +196,6 @@ function Attendence() {
         }
     };
 
-    // showing attendence 
-    // Extracting unique dates, students, and other required data
     const uniqueDates = Array.from(new Set(attendance.map(record => new Date(record.date).toLocaleDateString())));
     const students = attendance.flatMap(record => record.attendance.map(a => ({
         ...a.student,
@@ -216,7 +203,6 @@ function Attendence() {
         date: new Date(record.date).toLocaleDateString(),
     })));
 
-    // Organize data by students
     const studentRecords = students.reduce((acc, student) => {
         const { _id, name, rollNo, date, status } = student;
         if (!acc[_id]) {
@@ -228,7 +214,6 @@ function Attendence() {
 
     const studentList = Object.values(studentRecords);
 
-    // Helper function to calculate percentage
     const calculatePercentage = (student) => {
         const totalDays = uniqueDates.length;
         const attendedDays = Object.values(student.attendance).filter(status => status === '1').length;
@@ -236,28 +221,25 @@ function Attendence() {
     };
 
     const getAllGrades = async () => {
-        const token = await window.electronAPI.getUserData();
-        const user = token.admin._id
-
+        const user = tokenData.admin._id;
         try {
-            await axios.get(`${conf.backendUrl}admin/get-all-grades/${user}`, {
+            const response = await axios.get(`${conf.backendUrl}admin/get-all-grades/${user}`, {
                 headers: {
-                    Authorization: `Bearer ${token?.token}`,
+                    Authorization: `Bearer ${tokenData.token}`,
                 },
-            }).then((res) => {
-                setAllGrades(res.data?.data?.gradename)
-            })
+            });
+            setAllGrades(response.data?.data?.gradename);
         } catch (err) {
             toast.error(`${err.response?.data?.message || "Network Issue"}`, {
                 position: "bottom-right",
                 autoClose: 2000,
             });
         }
-    }
+    };
 
     useEffect(() => {
-        getAllGrades()
-    }, [])
+        if (tokenData.token) getAllGrades();
+    }, [tokenData]);
 
     return (
         <section>
@@ -313,7 +295,7 @@ function Attendence() {
                     </form>
 
                     {/* Timetable Form */}
-                    {selectedSubData.length > 0 && (
+                    {selectedSubData?.length > 0 && (
                         <form className="mt-8 pb-16 w-full" onSubmit={handleSubmit}>
                             <div className="space-y-5 w-2/3 mx-auto">
                                 <div>
@@ -344,7 +326,7 @@ function Attendence() {
                                             onChange={(e) => handleSubjectChange(e.target.value)}
                                         >
                                             <option value="" disabled>Select Subject</option>
-                                            {selectedSubData.map((sub) => (
+                                            {selectedSubData?.map((sub) => (
                                                 <option key={sub._id} value={sub._id}>{sub.name}</option>
                                             ))}
                                         </select>
@@ -402,7 +384,7 @@ function Attendence() {
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {allStudents.map((student) => (
+                                            {allStudents?.map((student) => (
                                                 <tr key={student._id}>
                                                     <td className="py-2 px-6 text-sm text-gray-700">{student.name} {student.fatherName}</td>
                                                     <td className="py-2 px-6 text-sm text-gray-700">{student.rollNo}</td>
@@ -482,7 +464,7 @@ function Attendence() {
                     </form>
 
                     {/* subject selection  */}
-                    {selectedSecondSubData.length > 0 && (
+                    {selectedSecondSubData?.length > 0 && (
                         <form className="mt-2 pb-16 w-full" onSubmit={fetchAttendence}>
                             <div className="space-y-5 w-2/3 mx-auto border-t pt-8">
                                 <div>
@@ -556,7 +538,7 @@ function Attendence() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {studentList.map((student, index) => (
+                                    {studentList?.map((student, index) => (
                                         <tr key={index}>
                                             <td className="border p-2">{student.name}</td>
                                             <td className="border p-2">{student.rollNo}</td>
